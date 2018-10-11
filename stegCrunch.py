@@ -1,13 +1,14 @@
 #!/usr/bin/python3.6
 
-import os, argparse, logging, subprocess, time
+import os, argparse, logging, subprocess, time, threading
 
 logging.basicConfig(level=logging.DEBUG, format='(%asctime)s - %(levelname)s - %(message)s')
 logging.disable(logging.CRITICAL)
 
 """
 stegCrunch.py
-~~~~~~~~~~~~~
+Brute force attack against steganography files that were created with steghide.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Originally, this was a shell script that quickly grew out of bash's abilities.
 Also, the speed at which the script could execute was rather limited because
 sed was having to pull the word list back into memory between every extraction 
@@ -32,6 +33,7 @@ parser.add_argument("-w", "--wordfile", type=str, help="Word list file.")
 arguments = parser.parse_args()
 argStegFile = arguments.stegfile
 argWordFile = arguments.wordfile
+##############################################################################################################
 
 def wordListLoader():
     if os.path.exists(argWordFile) :
@@ -49,26 +51,38 @@ def wordListLoader():
         print("Error: Path does not exist for word list.")
         exit(1)
     return wordList
+###############################################################################################################
 
-def crunch(passwdList, stegFile): #Need to add mult-threading.
-    for x in range(len(passwdList)): #For each word in the list, try to extract data.
+def crunch(passwdList, stegFile, x):
+    while x <= len(passwdList): #For each word in the list, try to extract data.
         os.system("clear")
-        print("Attempt #" + str(x) + " with word: " + str(passwdList[x]))
+        print("Attempt #" + str(x) + "/" + str(len(passwdList)) + " with word: " + str(passwdList[x]))
         outputText = subprocess.run(["steghide", "extract", "-sf", stegFile, "-p", passwdList[x]])
+        #Need to check 'outputText' for exit code of '0' in order to know if steghide has succeeded.
+        #I suspect this will cause a concurrency issue.
+        x += 2
         logging.debug(outputText)
     return
-
+###############################################################################################################
+    
 def main():
     if argStegFile is not None and argWordFile is not None : #Options and arguments were detected.
         logging.debug("Options and arguments detected.")
         if os.path.exists(argStegFile) :
-            crunch(wordListLoader(), argStegFile)
+            #Spool up two threads that will leap frog each other through the word list. I'm not entirely sure
+            #if this will avoid concurrency issues or not.
+            thread1 = threading.Thread(target =crunch, args=[wordListLoader(), argStegFile, 0])
+            thread1.start()
+
+            thread2 = threading.Thread(target =crunch, args=[wordListLoader(), argStegFile, 1])
+            thread2.start()
         else :
             print("Error: Steg file does not exist.")
     else :
         print("Nope.")
 
     return
+################################################################################################################
 
 main()
 exit(0)
