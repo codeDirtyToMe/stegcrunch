@@ -1,6 +1,6 @@
 #!/usr/bin/python3.6
 
-import os, argparse, logging, subprocess, time, threading
+import os, argparse, logging, subprocess, time, threading, time
 
 logging.basicConfig(level=logging.DEBUG, format='(%asctime)s - %(levelname)s - %(message)s')
 logging.disable(logging.CRITICAL)
@@ -22,6 +22,9 @@ Plans for multi-threading.
 In order to avoid concurreny issues I should have the threads leap frog through 
 the list of words. Although this may not work as I don't have that much experience
 with mult-threading. I may have to work with ques. We'll see. 
+
+After some testing, there is no improvement with more than 2 threads. Also, after
+looking online, the multiprocessing library may yield better results.
 """
 
 #Setting up the options.
@@ -60,6 +63,7 @@ def crunch(passwdList, stegFile, x):
         outputText = subprocess.run(["steghide", "extract", "-sf", stegFile, "-p", passwdList[x]])
         #Need to check 'outputText' for exit code of '0' in order to know if steghide has succeeded.
         #I suspect this will cause a concurrency issue.
+        #Thread2 is going beyond the bounds of the word list for some reason and will frequently cause an error.
         x += 2
         logging.debug(outputText)
     return
@@ -69,13 +73,28 @@ def main():
     if argStegFile is not None and argWordFile is not None : #Options and arguments were detected.
         logging.debug("Options and arguments detected.")
         if os.path.exists(argStegFile) :
+            #Grab the word list.
+            wordList = wordListLoader()
+
             #Spool up two threads that will leap frog each other through the word list. I'm not entirely sure
             #if this will avoid concurrency issues or not.
-            thread1 = threading.Thread(target =crunch, args=[wordListLoader(), argStegFile, 0])
+            startTime = time.time()
+            thread1 = threading.Thread(target =crunch, args=[wordList, argStegFile, 0])
             thread1.start()
 
-            thread2 = threading.Thread(target =crunch, args=[wordListLoader(), argStegFile, 1])
+            thread2 = threading.Thread(target =crunch, args=[wordList, argStegFile, 1])
             thread2.start()
+
+            threads = list()
+            threads.append(thread1)
+            threads.append(thread2)
+
+            #Wait for all threads to complete.
+            for t in threads:
+                t.join()
+            endTime = time.time()
+
+            print("Execution took: %s seconds." % (endTime - startTime))
         else :
             print("Error: Steg file does not exist.")
     else :
@@ -85,4 +104,5 @@ def main():
 ################################################################################################################
 
 main()
+
 exit(0)
