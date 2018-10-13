@@ -1,9 +1,9 @@
 #!/usr/bin/python3.6
 
-import os, argparse, logging, subprocess, time, threading, time
+import os, argparse, logging, subprocess, threading, time, multiprocessing
+from multiprocessing import Process
 
 logging.basicConfig(level=logging.DEBUG, format='(%asctime)s - %(levelname)s - %(message)s')
-logging.disable(logging.CRITICAL)
 
 """
 stegCrunch.py
@@ -32,15 +32,22 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("-s", "--stegfile", type=str, help="Target file.")
 parser.add_argument("-w", "--wordfile", type=str, help="Word list file.")
+parser.add_argument("-p", "--processes", type=int, help="# of threads to spool.")
+parser.add_argument("-l", "--logging", help="Enable logging.")
 
 arguments = parser.parse_args()
 argStegFile = arguments.stegfile
 argWordFile = arguments.wordfile
+argProcesses = arguments.processes
+argLogging = arguments.logging
+
 ##############################################################################################################
 
 def wordListLoader():
     if os.path.exists(argWordFile) :
+        logging.debug("Word file exists.")
         workingFile = open(argWordFile, encoding='ISO-8859-1')
+        logging.debug("Word file loaded into memory.")
         wordList = workingFile.read().split() #Create a list of words from the word file.
 
         #The rest of this is honestly more for debugging purposes, but would I think it would be nice for the user to
@@ -56,53 +63,59 @@ def wordListLoader():
     return wordList
 ###############################################################################################################
 
-def crunch(passwdList, stegFile, x):
-    while x <= len(passwdList): #For each word in the list, try to extract data.
+def crunch(passwdList, stegFile, threadNum, threadTotal):
+    while threadNum <= len(passwdList): #For each word in the list, try to extract data.
         os.system("clear")
-        print("Attempt #" + str(x) + "/" + str(len(passwdList)) + " with word: " + str(passwdList[x]))
-        outputText = subprocess.run(["steghide", "extract", "-sf", stegFile, "-p", passwdList[x]])
+        print("Attempt #" + str(threadNum) + "/" + str(len(passwdList)) + " with word: " + str(passwdList[threadNum]))
+        outputText = subprocess.run(["steghide", "extract", "-sf", stegFile, "-p", passwdList[threadNum]])
         #Need to check 'outputText' for exit code of '0' in order to know if steghide has succeeded.
         #I suspect this will cause a concurrency issue.
         #Thread2 is going beyond the bounds of the word list for some reason and will frequently cause an error.
-        x += 2
+        threadNum += threadTotal
         logging.debug(outputText)
     return
 ###############################################################################################################
-    
-def main():
-    if argStegFile is not None and argWordFile is not None : #Options and arguments were detected.
-        logging.debug("Options and arguments detected.")
-        if os.path.exists(argStegFile) :
-            #Grab the word list.
-            wordList = wordListLoader()
 
-            #Spool up two threads that will leap frog each other through the word list. I'm not entirely sure
-            #if this will avoid concurrency issues or not.
-            startTime = time.time()
-            thread1 = threading.Thread(target =crunch, args=[wordList, argStegFile, 0])
-            thread1.start()
 
-            thread2 = threading.Thread(target =crunch, args=[wordList, argStegFile, 1])
-            thread2.start()
+#Main##########################################################################################################
 
-            threads = list()
-            threads.append(thread1)
-            threads.append(thread2)
+#First, check for logging.
+if argLogging is not None :
+    logging.debug("Logging enabled.")
+    pass
+else :
+    logging.disable(logging.CRITICAL)
 
-            #Wait for all threads to complete.
-            for t in threads:
-                t.join()
-            endTime = time.time()
+#Next, check for other options.
+if argStegFile is not None and argWordFile is not None : #Options and arguments were detected.
+    logging.debug("Options and arguments detected.")
+    if os.path.exists(argStegFile) :
+        logging.debug("Steg file exists.")
+        #Grab the word list.
+        wordList = wordListLoader()
+        logging.debug("Word list is ready as a list.")
 
-            print("Execution took: %s seconds." % (endTime - startTime))
-        else :
-            print("Error: Steg file does not exist.")
+        if argProcesses is not None : # If multi-processing was requested.
+            logging.debug("Multiprocessing was requested: " + str(argProcesses) + " processes requested.")
+            if multiprocessing.cpu_count() <= argProcesses : #A correct number of cores was requested.
+                procs = [] #Create a list to contain the processes.
+                if __name__ == "__main__" : #Occurs in main thread.
+                    for p in range(argProcesses) : #Create the requested amount of processes.
+                        process = Process(target=crunch, args=(wordList, argStegFile, p, argProcesses))
+                        procs.append(process)
+                        process.start()
+
+                    for process in procs :
+                        process.join()
+            else :
+                print("Error. Only " + str(multiprocessing.cpu_count()) + " cores available. " + str(argProcesses) +\
+                      " threads were requested.")
+        else : #No multithreading was requested.
+            crunch(wordList, argStegFile, 1, 1)
+
     else :
-        print("Nope.")
-
-    return
-################################################################################################################
-
-main()
+        print("Error: Steg file does not exist.")
+else :
+    print("Nope.")
 
 exit(0)
