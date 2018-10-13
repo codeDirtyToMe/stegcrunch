@@ -3,7 +3,7 @@
 import os, argparse, logging, subprocess, threading, time, multiprocessing
 from multiprocessing import Process
 
-logging.basicConfig(level=logging.DEBUG, format='(%asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(message)s')
 
 """
 stegCrunch.py
@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-s", "--stegfile", type=str, help="Target file.")
 parser.add_argument("-w", "--wordfile", type=str, help="Word list file.")
 parser.add_argument("-p", "--processes", type=int, help="# of threads to spool.")
-parser.add_argument("-l", "--logging", help="Enable logging.")
+parser.add_argument("-l", "--logging", help="Enable logging.", action="store_true")
 
 arguments = parser.parse_args()
 argStegFile = arguments.stegfile
@@ -80,7 +80,7 @@ def crunch(passwdList, stegFile, threadNum, threadTotal):
 #Main##########################################################################################################
 
 #First, check for logging.
-if argLogging is not None :
+if argLogging is True :
     logging.debug("Logging enabled.")
     pass
 else :
