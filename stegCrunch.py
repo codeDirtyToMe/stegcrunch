@@ -1,7 +1,7 @@
 #!/usr/bin/python3.6
 
-import os, argparse, logging, subprocess, threading, time, multiprocessing
-from multiprocessing import Process
+import os, argparse, logging, subprocess, time, multiprocessing
+from multiprocessing import Process, current_process
 
 logging.basicConfig(level=logging.DEBUG, format='%(message)s')
 
@@ -41,6 +41,7 @@ argWordFile = arguments.wordfile
 argProcesses = arguments.processes
 argLogging = arguments.logging
 
+globalStop = str()
 ##############################################################################################################
 
 def wordListLoader():
@@ -56,7 +57,7 @@ def wordListLoader():
         wordListMemorySize = wordListStat.split()
         wordListMemorySize = wordListMemorySize[3].decode("utf-8")
         print("Word List: " + argWordFile + " ------>Loaded into memory: " + str(len(wordList)) + " words @ " + str(wordListMemorySize) + " Bytes")
-        time.sleep(3)
+        #time.sleep(3)
     else :
         print("Error: Path does not exist for word list.")
         exit(1)
@@ -64,15 +65,36 @@ def wordListLoader():
 ###############################################################################################################
 
 def crunch(passwdList, stegFile, threadNum, threadTotal):
-    while threadNum <= len(passwdList): #For each word in the list, try to extract data.
-        os.system("clear")
-        print("Attempt #" + str(threadNum) + "/" + str(len(passwdList)) + " with word: " + str(passwdList[threadNum]))
+    global globalStop
+    while int(threadNum + 1) <= len(passwdList): #For each word in the list, try to extract data.
+        #os.system("clear")
+        proccessName = current_process().name
+        print("Attempt #" + str(threadNum + 1) + "/" + str(len(passwdList)) + " with word \"" + str(passwdList[threadNum]) + "\" by " + str(proccessName))
         outputText = subprocess.run(["steghide", "extract", "-sf", stegFile, "-p", passwdList[threadNum]])
         #Need to check 'outputText' for exit code of '0' in order to know if steghide has succeeded.
         #I suspect this will cause a concurrency issue.
         #Thread2 is going beyond the bounds of the word list for some reason and will frequently cause an error.
-        threadNum += threadTotal
-        logging.debug(outputText)
+        #logging.debug(outputText)
+
+        #Will need to parse outputText for the return code.
+        outputText = str(outputText)
+        outputText = outputText.split()
+        returnCode = list(outputText[-1])
+        returnCode = returnCode[-2]
+
+        if returnCode == "1" :
+            threadNum += threadTotal
+        elif returnCode == "0" :
+            globalStop = "stop" #Tell the other threads to stop.
+            print("Success with word \"" + str(passwdList[threadNum]) + "\"")
+            return
+        else :
+            print("Unknown error code.")
+            exit(1)
+
+        if globalStop == "stop" : #If one thread tells another to stop, then stop.
+            return
+
     return
 ###############################################################################################################
 
@@ -82,25 +104,28 @@ def crunch(passwdList, stegFile, threadNum, threadTotal):
 #First, check for logging.
 if argLogging is True :
     logging.debug("Logging enabled.")
-    pass
 else :
     logging.disable(logging.CRITICAL)
 
 #Next, check for other options.
 if argStegFile is not None and argWordFile is not None : #Options and arguments were detected.
     logging.debug("Options and arguments detected.")
+
     if os.path.exists(argStegFile) :
         logging.debug("Steg file exists.")
         #Grab the word list.
         wordList = wordListLoader()
-        logging.debug("Word list is ready as a list.")
+        logging.debug("Word list is ready as a Python list.")
 
         if argProcesses is not None : # If multi-processing was requested.
             logging.debug("Multiprocessing was requested: " + str(argProcesses) + " processes requested.")
+
             if multiprocessing.cpu_count() <= argProcesses : #A correct number of cores was requested.
                 procs = [] #Create a list to contain the processes.
+
                 if __name__ == "__main__" : #Occurs in main thread.
                     for p in range(argProcesses) : #Create the requested amount of processes.
+                        startTime = time.time() #Start the clock.
                         process = Process(target=crunch, args=(wordList, argStegFile, p, argProcesses))
                         procs.append(process)
                         process.start()
@@ -111,11 +136,16 @@ if argStegFile is not None and argWordFile is not None : #Options and arguments 
                 print("Error. Only " + str(multiprocessing.cpu_count()) + " cores available. " + str(argProcesses) +\
                       " threads were requested.")
         else : #No multithreading was requested.
-            crunch(wordList, argStegFile, 1, 1)
+            startTime = time.time() #Start the clock.
+            crunch(wordList, argStegFile, 0, 1)
 
     else :
         print("Error: Steg file does not exist.")
 else :
     print("Nope.")
 
+stopTime = time.time()
+totalTime = stopTime - startTime
+
+print("Execution took: " + str(totalTime) + " seconds.")
 exit(0)
